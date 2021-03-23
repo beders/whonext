@@ -1,0 +1,10 @@
+{
+	"name": "whonext",
+	"dependencies": {
+		"react": "17.0.1",
+		"react-dom": "17.0.1"
+	},
+	"devDependencies": {
+		"shadow-cljs": "2.11.21"
+	}
+}
