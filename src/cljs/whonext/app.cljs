@@ -1,137 +1,192 @@
 (ns whonext.app
-  (:require [re-frame.core :as re]
+  (:require [re-frame.core :as rf]
             [clojure.string :as str]))
 
-;; some syntactic sugar: (<== ... ) vs @(re/subscribe ...)
-(def <== (comp deref re/subscribe))
-
-;; views
+;;; views
 
 (defn current-person []
-  [:center [:h2 (or (<== [::sub.current-person]) "Done!")]])
+  [:center [:h2 (or @(rf/subscribe [::sub.current-person]) "Done!")]])
 
 (defn action-bar []
   [:div
-   (if (<== [::sub.has-next?]) [:button {:on-click #(re/dispatch [::evt.next!])} "Next!"]
-                               [:button.secondary {:on-click #(re/dispatch [::evt.load-persons])} "Restart!"])])
+   (if @(rf/subscribe [::sub.has-next?]) [:button {:on-click #(rf/dispatch [::evt.next!])} "Next!"]
+                                         [:button.secondary {:on-click #(rf/dispatch [::evt.load-persons])} "Restart!"])])
 
 (defn previous-persons []
   [:ol
-   (for [person (<== [::sub.previous-persons])]
+   (for [person @(rf/subscribe [::sub.previous-persons])]
      [:li person]
      )])
 
 (defn setup []
-  (let [url (<== [::sub.setup-names-url])]
+  (let [url @(rf/subscribe [::sub.setup-names-url])]
     [:article
      [:hgroup [:h3 "Never fight over who goes next again!"]
       [:h4 "Save your introverts from picking who goes next at standup"]]
      [:div "Add names separated by comma:"]
-     [:input.names {:placeholder "Huey,Dewey,Louie" :on-change #(re/dispatch [::setup-names (-> % .-target .-value)])}]
-     [:div "Then click and bookmark this link 👇"]
+     [:input.names {:placeholder "Huey,Dewey,Louie" :on-change #(rf/dispatch [::setup-names (-> % .-target .-value)])}]
+     [:div "Then bookmark this link 👇"]
      [:div
       [:strong [:a {:href url :style {:overflow-wrap :anywhere}} url]]]
-     [:div "We'll present the names in a different order on re-load thanks to our patent-pending (shuffle names) technology!"]]))
+     [:div "We'll present the names in a different order on re-load thanks to our patent-pending (shuffle names) technology!"]
+     [:br]
+     (when (seq @(rf/subscribe [::sub.setup-names]))
+       [:<>
+        [:div "To have this appear inside a JIRA (cloud) board, bookmark this link 👉 " [:a {:href @(rf/subscribe [::sub.bookmarklet])} "Whonext-Jira"]]
+        [:div "Then click the bookmark when on a JIRA scrum board page."]])
+     ]))
+
+(defn normal-version []
+  [:div
+   [current-person]
+   [action-bar]
+   [previous-persons]])
+
+(defn mini-version []
+  (if @(rf/subscribe [::sub.has-next?])
+    [:button.mini-button {:on-click #(rf/dispatch [::evt.next!])} @(rf/subscribe [::sub.current-person])]
+    [:button.mini-button.secondary {:on-click #(rf/dispatch [::evt.load-persons])} "Restart!"]))
 
 (defn main-panel []
-  [:div
-   [:main.container
-    [:nav  [:ul [:li [:strong "Who next?"]]] [:ul [:li [:a {:href "/"} [:small "Start fresh!"]]]]]
-    (if (<== [::sub.setup?])
-      [setup]
-      [:div
-       [current-person]
-       [action-bar]
-       [previous-persons]])]
-   (when (<== [::sub.setup?])
-     [:footer
-      [:div [:small "Made with 🧡  by " [:a {:href "https://twitter.com/beders"
-                                             } "beders"]]]
-      [:div [:small "Thanks to " [:a {:href "https://day8.github.io/re-frame/"} "re-frame"] " and " [:a {:href "https://picocss.com"} "Pico CSS"]]]
-      [:div [:small "Honestly, this could have been 4 lines of JS code but instead turned into a re-frame tutorial"]]])
-   ])
+  (let [mini? (= :mini @(rf/subscribe [::sub.version]))]
+    [:div
+     [:main.container {:style {:margin-top "4px"}}
+      (when-not mini? [:nav [:ul [:li [:strong "Who next?"]]] [:ul [:li [:a {:href "/"} [:small "Start fresh!"]]]]])
+      (if @(rf/subscribe [::sub.setup?])
+        [setup]
+        (if mini?
+          [mini-version]
+          [normal-version]))]
+     (when @(rf/subscribe [::sub.setup?])
+       [:footer
+        [:div [:small "Made with 🧡  by " [:a {:href "https://twitter.com/beders"
+                                              } "beders"]]]
+        [:div [:small "Thanks to " [:a {:href "https://day8.github.io/re-frame/"} "re-frame"] " and " [:a {:href "https://picocss.com"} "Pico CSS"]]]
+        [:div [:small "Honestly, this could have been 4 lines of JS code but instead turned into a re-frame tutorial"]]])
+     ]))
 
-;; subs
-(re/reg-sub
-  ::sub.persons
-  #(:persons %))
+;;; subs
+(rf/reg-sub
+ ::sub.persons
+ (fn [db]
+   (:persons db)))
 
-(re/reg-sub
-  ::sub.current-person
-  :<- [::sub.persons]
-  (fn [persons]
-    (first persons)))
+(rf/reg-sub
+ ::sub.current-person
+ :<- [::sub.persons]
+ (fn [persons]
+   (first persons)))
 
-(re/reg-sub
-  ::sub.has-next?
-  :<- [::sub.current-person]
-  (fn [current]
-    (some? current)))
+;;; sugar for
+(rf/reg-sub
+ ::sub.current-person'
+ (fn [_query-vector]
+   (rf/subscribe [::sub.persons]))
+ (fn [persons _query-vector]
+   (first persons)))
 
-(re/reg-sub
-  ::sub.previous-persons
-  #(:previous %))
+(rf/reg-sub
+ ::sub.has-next?
+ :<- [::sub.current-person]
+ (fn [current]
+   (some? current)))
 
-(re/reg-sub
-  ::sub.setup?
-  #(:setup %))
+(rf/reg-sub
+ ::sub.previous-persons
+ #(:previous %))
 
-(re/reg-sub
-  ::sub.setup-names
-  #(:setup-names %))
+(rf/reg-sub
+ ::sub.version
+ #(:version %))
 
-(re/reg-sub
-  ::sub.setup-names-url
-  :<- [::sub.setup-names]
-  (fn [names]
-    (str (-> js/location .-origin) "/?p=" (some-> names (js/encodeURIComponent names)))))
+(rf/reg-sub
+ ::sub.setup?
+ #(:setup %))
 
-;; events
+(rf/reg-sub
+ ::sub.setup-names
+ #(:setup-names %))
 
-(re/reg-fx
-  ::fx.from-url
-  (fn []
-    (let [persons
-          (->> (-> js/window .-location .-search js/URLSearchParams. (.get "p") (str/split #","))
-               (map str/trim)
-               (filter (complement empty?))
-               (into [])
-               )]
-      (if (empty? persons)
-        (re/dispatch [::evt.setup])
-        (re/dispatch [::evt.initialize-db persons])
-        ))))
+(rf/reg-sub
+ ::sub.setup-names-url
+ :<- [::sub.setup-names]
+ (fn [names]
+   (str (-> js/location .-origin) "/?p=" (some-> names (js/encodeURIComponent names)))))
 
-(re/reg-event-fx
-  ::evt.load-persons
-  (fn []
-    {::fx.from-url {}}))
+(rf/reg-sub
+ ::sub.bookmarklet
+ :<- [::sub.setup-names-url]
+ (fn [url]
+   (let [bookmarklet "javascript:(function(){e = document.querySelector('#ak-jira-navigation nav [data-testid=\"create-button-wrapper\"]').parentElement;
+      f = document.createElement('iframe');
+      e.appendChild(f);
+      f.src='
+      "
+         end         "';})();"
+         mini-version "&v=mini"
+         ]
+     (str bookmarklet url mini-version end))
+   ))
 
-(re/reg-event-db
-  ::evt.setup
-  (fn [db]
-    (assoc db :setup true)))
+;;; events
 
-(re/reg-event-db
-  ::evt.initialize-db
-  (fn [_ [_ persons]]
-    {:setup false
-     :persons  (shuffle persons)
-     :previous []}))
+(rf/reg-fx
+ ::fx.from-url
+ (fn []
+   (let [params (-> js/window .-location .-search js/URLSearchParams.)
+         persons (->> (-> params (.get "p") (str/split #","))
+                      (map str/trim)
+                      (filter (complement empty?))
+                      (into []))
+         version (keyword (or (.get params "v") "normal"))]
+     (if (empty? persons)
+       (rf/dispatch [::evt.setup])
+       (rf/dispatch [::evt.initialize-db persons version])
+       ))))
 
-(re/reg-event-db
-  ::evt.next!
-  (fn [db _]
-    (let [[current & rest] (:persons db)]
-      (-> db
-          (assoc :persons rest)
-          (update :previous conj current)
-          )
-      )))
+(rf/reg-event-fx
+ ::evt.load-persons
+ (fn []
+   {::fx.from-url {}}))
 
-(re/reg-event-db
-  ::setup-names
-  (fn [db [_ names]]
-    (assoc db :setup-names names)))
+(rf/reg-event-db
+ ::evt.setup
+ (fn [db]
+   (assoc db :setup true)))
 
+(rf/reg-event-db
+ ::evt.initialize-db
+ (fn [_ [_ persons version]]
+   {:setup    false
+    :version version
+    :persons  (shuffle persons)
+    :previous []}))
 
+(rf/reg-event-db
+ ::evt.next!
+ (fn [db _]
+   (let [[current & rest] (:persons db)]
+     (-> db
+         (assoc :persons rest)
+         (update :previous conj current)))))
+
+(rf/reg-event-db
+ ::setup-names
+ (fn [db [_ names]]
+   (assoc db :setup-names names)))
+
+;
+(rf/reg-event-fx
+ :bug-empty
+ (fn []
+   {:db {}}))
+
+(comment
+ @re-frame.db/app-db
+ @(rf/subscribe [::sub.persons])
+ @(rf/subscribe [::sub.setup-names])
+ @(rf/subscribe [::sub.version])
+ (rf/dispatch [::evt.initialize-db ["Tick" "Trick" "Track"] :normal])
+ (rf/dispatch [::evt.next!])
+ (tap> @re-frame.db/app-db)
+ )

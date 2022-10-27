@@ -1,7 +1,7 @@
 (ns whonext.core
   (:require
    [reagent.dom :as rdom]
-   [re-frame.core :as re-frame]
+   [re-frame.core :as rf]
    [whonext.app :as app]
    ))
 
@@ -11,12 +11,12 @@
     (println "dev mode")))
 
 (defn ^:dev/after-load mount-root []
-  (re-frame/clear-subscription-cache!)
+  (rf/clear-subscription-cache!)
   (let [root-el (.getElementById js/document "app")]
     (rdom/unmount-component-at-node root-el)
     (rdom/render [app/main-panel] root-el)))
 
 (defn init []
-  (re-frame/dispatch-sync [::app/evt.load-persons])
+  (rf/dispatch-sync [::app/evt.load-persons])
   (dev-setup)
   (mount-root))
